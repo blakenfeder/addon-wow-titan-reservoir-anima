@@ -12,14 +12,27 @@ local TitanReservoirAnima = {
     Version = "",
     Author = "",
   },
+  CurrencyConst = {
+    Id = 1813,
+    Icon = "Interface\\Icons\\spell_animabastion_orb",
+    Name = "",
+    Description = "",
+    Color = "|cffffffff",
+  },
   IsInitialized = false,
 }
 function TitanReservoirAnima.GetCurrencyInfo()
-  local i = 0
-  for i = 1, C_CurrencyInfo.GetCurrencyListSize(), 1 do
-    info = C_CurrencyInfo.GetCurrencyListInfo(i)    
-    if tostring(info.iconFileID) == "3528288" then
-      return info
+  return C_CurrencyInfo.GetCurrencyInfo(TitanReservoirAnima.CurrencyConst.Id)
+end
+function TitanReservoirAnima.InitCurrencyConst()
+  local info = TitanReservoirAnima.GetCurrencyInfo()
+  if (info) then
+    TitanReservoirAnima.CurrencyConst.Name = info.name
+    TitanReservoirAnima.CurrencyConst.Description = info.description
+    
+    local r, g, b, hex = GetItemQualityColor(info.quality)
+    if (hex) then
+      TitanReservoirAnima.CurrencyConst.Color = '|c' .. hex
     end
   end
 end
@@ -29,6 +42,20 @@ function TitanReservoirAnima.Util_GetFormattedNumber(number)
   else
     return string.format ("%d", number)
   end
+end
+function TitanReservoirAnima.Util_WrapText(text, lineLength)
+  local wrappedText = ""
+  local currentLine = ""
+  for word in string.gmatch(text, "[^%s]+") do
+      if string.len(currentLine) + string.len(word) > lineLength then
+          wrappedText = wrappedText .. currentLine .. "\n"
+          currentLine = word .. " "
+      else
+          currentLine = currentLine .. word .. " "
+      end
+  end
+  wrappedText = wrappedText .. currentLine
+  return wrappedText
 end
 
 -- Load metadata
@@ -44,37 +71,31 @@ local BKFD_C_RED = "|cffff0000"
 local BKFD_C_WHITE = "|cffffffff"
 local BKFD_C_YELLOW = "|cffffcc00"
 
--- Text item colors (AARRGGBB)
-local BKFD_C_COMMON = "|cffffffff"
-local BKFD_C_UNCOMMON = "|cff1eff00"
-local BKFD_C_RARE = "|cff0070dd"
-local BKFD_C_EPIC = "|cffa335ee"
-local BKFD_C_LEGENDARY = "|cffff8000"
-local BKFD_C_ARTIFACT = "|cffe5cc80"
-local BKFD_C_BLIZZARD = "|cff00ccff"
-
 -- Load Library references
 local LT = LibStub("AceLocale-3.0"):GetLocale("Titan", true)
 local L = LibStub("AceLocale-3.0"):GetLocale(TitanReservoirAnima.Const.Id, true)
 
 -- Currency update variables
-local BKFD_RA_UPDATE_FREQUENCY = 0.0
+local updateFrequency = 0.0
 local currencyCount = 0.0
 local currencyMaximum
+local wasMaximumReached = false
 local seasonalCount = 0.0
 local isSeasonal = false
 local currencyDiscovered = false
 
 function TitanPanelReservoirAnimaButton_OnLoad(self)
+  TitanReservoirAnima.InitCurrencyConst()
+
   self.registry = {
     id = TitanReservoirAnima.Const.Id,
     category = "Information",
     version = TitanReservoirAnima.Const.Version,
-    menuText = L["BKFD_TITAN_RA_MENU_TEXT"], 
+    menuText = TitanReservoirAnima.CurrencyConst.Name,
     buttonTextFunction = "TitanPanelReservoirAnimaButton_GetButtonText",
-    tooltipTitle = BKFD_C_RARE..L["BKFD_TITAN_RA_TOOLTIP_TITLE"],
+    tooltipTitle = TitanReservoirAnima.CurrencyConst.Color .. TitanReservoirAnima.CurrencyConst.Name,
     tooltipTextFunction = "TitanPanelReservoirAnimaButton_GetTooltipText",
-    icon = "Interface\\Icons\\spell_animabastion_orb",
+    icon = TitanReservoirAnima.CurrencyConst.Icon,
     iconWidth = 16,
     controlVariables = {
       ShowIcon = true,
@@ -85,7 +106,6 @@ function TitanPanelReservoirAnimaButton_OnLoad(self)
       ShowLabelText = false,
       ShowColoredText = false,
     },
-    -- frequency = 2,
   };
 
 
@@ -101,24 +121,29 @@ function TitanPanelReservoirAnimaButton_GetButtonText(id)
     currencyCountText = TitanReservoirAnima.Util_GetFormattedNumber(currencyCount)
   end
 
-  if (currencyMaximum and not(currencyMaximum == 0) and currencyCount and currencyMaximum == currencyCount) then
-    currencyCountText = BKFD_C_RED..currencyCountText
+  if (wasMaximumReached) then
+    currencyCountText = BKFD_C_RED .. currencyCountText
   end
 
-  return L["BKFD_TITAN_RA_BUTTON_LABEL"], TitanUtils_GetHighlightText(currencyCountText)
+  return TitanReservoirAnima.CurrencyConst.Name .. ": ", TitanUtils_GetHighlightText(currencyCountText)
 end
 
 function TitanPanelReservoirAnimaButton_GetTooltipText()
+  local currencyDescription = TitanReservoirAnima.Util_WrapText(TitanReservoirAnima.CurrencyConst.Description, 36)
+
+
   if (not currencyDiscovered) then
     return
-      L["BKFD_TITAN_RA_TOOLTIP_DESCRIPTION"].."\r"..
-      " \r"..
-      TitanUtils_GetHighlightText(L["BKFD_TITAN_RA_TOOLTIP_NOT_YET_DISCOVERED"])
+      currencyDescription .. "\r" ..
+      " \r" ..
+      TitanUtils_GetHighlightText(L["BKFD_TITAN_TOOLTIP_NOT_YET_DISCOVERED"])
   end
 
   -- Set which total value will be displayed
   local tooltipCurrencyCount = currencyCount
+  local tooltipCurrencyCurrentCount = 0
   if (isSeasonal) then
+    tooltipCurrencyCurrentCount = tooltipCurrencyCount
     tooltipCurrencyCount = seasonalCount
   end
 
@@ -133,36 +158,54 @@ function TitanPanelReservoirAnimaButton_GetTooltipText()
       "%s",
       TitanReservoirAnima.Util_GetFormattedNumber(tooltipCurrencyCount)
     )
-  elseif (currencyMaximum == tooltipCurrencyCount) then
-    totalValue = BKFD_C_RED..totalValue
+  elseif (wasMaximumReached) then
+    totalValue = BKFD_C_RED .. totalValue
   end
+  local seasonCurrentValue = TitanReservoirAnima.Util_GetFormattedNumber(tooltipCurrencyCurrentCount)
   
-  local totalLabel = L["BKFD_TITAN_RA_TOOLTIP_COUNT_LABEL_TOTAL_MAXIMUM"]
+  local totalLabel = L["BKFD_TITAN_TOOLTIP_COUNT_LABEL_TOTAL_MAXIMUM"]
   if (isSeasonal) then
-    totalLabel = L["BKFD_TITAN_RA_TOOLTIP_COUNT_LABEL_TOTAL_SEASONAL"]
+    totalLabel = L["BKFD_TITAN_TOOLTIP_COUNT_LABEL_TOTAL_SEASONAL"]
   elseif (not currencyMaximum or currencyMaximum == 0) then
-    totalLabel = L["BKFD_TITAN_RA_TOOLTIP_COUNT_LABEL_TOTAL"]
+    totalLabel = L["BKFD_TITAN_TOOLTIP_COUNT_LABEL_TOTAL"]
   end
 
-  return
-    L["BKFD_TITAN_RA_TOOLTIP_DESCRIPTION"].."\r"..
-    " \r"..
-    totalLabel..TitanUtils_GetHighlightText(totalValue)
+  if (isSeasonal and currencyMaximum and currencyMaximum > 0) then
+    return
+      currencyDescription .. "\r" ..
+      " \r" ..
+      L["BKFD_TITAN_TOOLTIP_COUNT_LABEL_TOTAL"]..TitanUtils_GetHighlightText(seasonCurrentValue) .. "\r" ..
+      totalLabel .. TitanUtils_GetHighlightText(totalValue)
+  else
+    return
+      currencyDescription .. "\r" ..
+      " \r" ..
+      totalLabel .. TitanUtils_GetHighlightText(totalValue)
+  end
 end
 
 function TitanPanelReservoirAnimaButton_OnUpdate(self, elapsed)
-  BKFD_RA_UPDATE_FREQUENCY = BKFD_RA_UPDATE_FREQUENCY - elapsed;
+  updateFrequency = updateFrequency - elapsed;
 
-  if BKFD_RA_UPDATE_FREQUENCY <= 0 then
-    BKFD_RA_UPDATE_FREQUENCY = 1;
+  if updateFrequency <= 0 then
+    updateFrequency = 1;
 
-    local info = TitanReservoirAnima.GetCurrencyInfo()
+    local info = TitanReservoirAnima.GetCurrencyInfo(TitanReservoirAnima.CurrencyConst.Id)
     if (info) then
-      currencyDiscovered = true
+      currencyDiscovered = info.discovered
       currencyCount = tonumber(info.quantity)
       currencyMaximum = tonumber(info.maxQuantity)
       seasonalCount = tonumber(info.totalEarned)
       isSeasonal = info.useTotalEarnedForMaxQty
+
+      wasMaximumReached =
+          currencyMaximum and not(currencyMaximum == 0)
+          and isSeasonal and seasonalCount
+          and seasonalCount >= currencyMaximum
+        or
+          currencyMaximum and not(currencyMaximum == 0)
+          and not isSeasonal and currencyCount
+          and currencyCount >= currencyMaximum
     end
 
     TitanPanelButton_UpdateButton(TitanReservoirAnima.Const.Id)
@@ -173,11 +216,10 @@ function TitanPanelReservoirAnimaButton_OnEvent(self, event, ...)
   if (event == "PLAYER_ENTERING_WORLD") then
     if (not TitanReservoirAnima.IsInitialized and DEFAULT_CHAT_FRAME) then
       DEFAULT_CHAT_FRAME:AddMessage(
-        BKFD_C_YELLOW..TitanReservoirAnima.Const.DisplayName.." "..
-        BKFD_C_GREEN..TitanReservoirAnima.Const.Version..
-        BKFD_C_YELLOW.." by "..
-        BKFD_C_ORANGE..TitanReservoirAnima.Const.Author)
-      -- TitanReservoirAnima.GetCurrencyInfo()
+        BKFD_C_YELLOW .. TitanReservoirAnima.Const.DisplayName .. " " ..
+        BKFD_C_GREEN .. TitanReservoirAnima.Const.Version ..
+        BKFD_C_YELLOW .. " by "..
+        BKFD_C_ORANGE .. TitanReservoirAnima.Const.Author)
       TitanPanelButton_UpdateButton(TitanReservoirAnima.Const.Id)
       TitanReservoirAnima.IsInitialized = true
     end
@@ -189,7 +231,7 @@ function TitanPanelReservoirAnimaButton_OnEvent(self, event, ...)
   end
 end
 
-function TitanPanelRightClickMenu_PrepareAnimaMenu()
+function TitanPanelRightClickMenu_PrepareReservoirAnimaMenu()
   local id = TitanReservoirAnima.Const.Id;
 
   TitanPanelRightClickMenu_AddTitle(TitanPlugins[id].menuText)
